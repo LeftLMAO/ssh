@@ -364,22 +364,32 @@ def is_yt_dlp_running():
     return False
 
 def move_finished_files(verbose=False):
+    global last_add_time
+
     moved = 0
     temp_exts = {'.part', '.ytdl', '.tmp', '.download', '.frag'}
     all_sources = [DL_ROOT, YTDLP_ROOT]
 
     while is_yt_dlp_running():
-        if verbose: print("yt-dlp running, waiting 5s...")
+        if verbose:
+            print("yt-dlp running, waiting 5s...")
         time.sleep(5)
 
     for source in all_sources:
-        if not source.exists(): continue
+        if not source.exists():
+            continue
+
         for file_path in source.rglob('*'):
-            if not file_path.is_file(): continue
-            if any(file_path.name.lower().endswith(ext) for ext in temp_exts): continue
-            if "frag" in file_path.name.lower(): continue
+            if not file_path.is_file():
+                continue
+            if any(file_path.name.lower().endswith(ext) for ext in temp_exts):
+                continue
+            if "frag" in file_path.name.lower():
+                continue
+
             try:
                 dest = BUNDLE_DIR / file_path.name
+
                 if dest.exists():
                     base, suffix = dest.stem, dest.suffix
                     counter = 1
@@ -389,11 +399,17 @@ def move_finished_files(verbose=False):
                             dest = new_dest
                             break
                         counter += 1
+
                 shutil.move(str(file_path), str(dest))
                 moved += 1
-                if verbose: print(f"Moved: {dest.name}")
+                last_add_time = time.time()  # ✅ update time when new file arrives
+
+                if verbose:
+                    print(f"Moved: {dest.name}")
+
             except Exception as e:
                 log_error(f"Failed to move {file_path.name}: {e}")
+
     return moved
 
 def get_bundle_size():
@@ -486,8 +502,7 @@ def split_large_file(file_path, chunk_size=MAX_ZIP_SIZE):
         return []
 
 def pack_and_send():
-global last_add_time
-last_add_time = time.time()
+
     moved = move_finished_files()
     if moved: log_info(f"Moved {moved} files")
     files = get_bundle_files()
