@@ -175,9 +175,13 @@ install_dependencies() {
 
     log_info "Installing yt-dlp & gallery-dl..."
 
+    # 🚀 Force clean install without touching system packages
     pip3 install --break-system-packages -U \
-        yt-dlp gallery-dl psutil tqdm requests \
+        yt-dlp gallery-dl psutil \
         --ignore-installed
+
+    # Install tqdm & requests WITHOUT uninstall attempt
+    pip3 install --break-system-packages -U tqdm requests --no-deps
 
     log_success "All dependencies installed"
 }
