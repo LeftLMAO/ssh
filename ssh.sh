@@ -1,4 +1,6 @@
 
+
+
 #!/usr/bin/env bash
 
 
@@ -116,20 +118,37 @@ install_dependencies() {
 
     export DEBIAN_FRONTEND=noninteractive
 
-    # 🔒 Wait for any apt locks to be released
-    log_info "Waiting for apt locks to be free..."
-    while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
-       || sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 \
-       || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
-       || sudo fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
-        log_info "Another apt process is running... waiting 3s"
+    # 🔒 Wait for apt locks (max ~60s)
+    log_info "Waiting for apt locks (max 60s)..."
+    for i in {1..20}; do
+        if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+           && ! sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 \
+           && ! sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
+           && ! sudo fuser /var/cache/apt/archives/lock >/dev/null 2>&1; then
+            break
+        fi
+
+        log_info "Apt busy... ($i/20)"
         sleep 3
     done
 
-    # 🧹 Fix broken states (VERY IMPORTANT)
+    # 🚨 If still locked → force fix
+    if sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+       || sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+
+        log_error "Apt stuck → killing processes"
+
+        sudo killall -9 apt apt-get dpkg 2>/dev/null || true
+
+        sudo rm -f /var/lib/apt/lists/lock
+        sudo rm -f /var/cache/apt/archives/lock
+        sudo rm -f /var/lib/dpkg/lock*
+    fi
+
+    # 🧹 Fix broken packages
     sudo dpkg --configure -a >/dev/null 2>&1 || true
 
-    # 🔄 Retry logic
+    # 🔄 Retry update
     for i in {1..5}; do
         log_info "Running apt update (attempt $i)..."
         if sudo apt-get update -qq; then
@@ -139,6 +158,7 @@ install_dependencies() {
         sleep 5
     done
 
+    # 🔄 Retry install
     for i in {1..5}; do
         log_info "Installing packages (attempt $i)..."
         if sudo apt-get install -y -qq \
@@ -156,11 +176,11 @@ install_dependencies() {
     log_info "Installing yt-dlp & gallery-dl..."
 
     pip3 install --break-system-packages -U \
-        yt-dlp gallery-dl psutil tqdm requests
+        yt-dlp gallery-dl psutil tqdm requests \
+        --ignore-installed
 
     log_success "All dependencies installed"
 }
-
 configure_gallery_dl() {
     log_info "Configuring gallery-dl..."
     
@@ -187,31 +207,27 @@ EOF
 
 start_telegram_api() {
     log_info "Starting Telegram Bot API..."
-    
-    if sudo docker ps | grep -q telegram-bot-api; then
-        log_info "Telegram API already running"
-        return 0
+
+    # If container exists → just start it
+    if sudo docker ps -a --format '{{.Names}}' | grep -q '^telegram-bot-api$'; then
+        log_info "Container exists, starting it..."
+        sudo docker start telegram-bot-api >/dev/null 2>&1 || true
+    else
+        log_info "Creating new Telegram API container..."
+
+        sudo docker run -d \
+          -p 8081:8081 \
+          --name telegram-bot-api \
+          --restart always \
+          -e TELEGRAM_API_ID=36233902 \
+          -e TELEGRAM_API_HASH=ab25758b014f1c174232b14782936883 \
+          -e TELEGRAM_LOCAL=true \
+          -v "${HOME}:${HOME}" \
+          --cpus=2 \
+          aiogram/telegram-bot-api:latest
     fi
-    
-    # Wait for Docker daemon
-    for i in {1..10}; do
-        if sudo docker ps &>/dev/null; then
-            break
-        fi
-        [ $i -lt 10 ] && sleep 2
-    done
-    
-    sudo docker run -d \
-      -p 8081:8081 \
-      --name telegram-bot-api \
-      --restart always \
-      -e TELEGRAM_API_ID=36233902 \
-      -e TELEGRAM_API_HASH=ab25758b014f1c174232b14782936883 \
-      -e TELEGRAM_LOCAL=true \
-      -v "${HOME}:${HOME}" \
-      --cpus=2 \
-      aiogram/telegram-bot-api:latest    
-    # Wait for API to be ready
+
+    # Wait for API
     for i in {1..30}; do
         if curl -s "${TELEGRAM_API_URL}/bot${BOT_TOKEN}/getMe" >/dev/null 2>&1; then
             log_success "Telegram API ready"
@@ -219,7 +235,7 @@ start_telegram_api() {
         fi
         sleep 1
     done
-    
+
     log_error "Telegram API failed to start"
     return 1
 }
