@@ -539,7 +539,7 @@ def pack_and_send(force=False):
         send_batch(batch_files)
 
 def send_batch(file_list):
-    if all(".zip." in f.name for f in file_list):
+    if all(".7z." in f.name or ".zip." in f.name for f in file_list):
         for part in file_list:
             upload_to_tg(part, caption=f"📦 Part: {part.name}")
         return
