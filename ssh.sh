@@ -500,7 +500,7 @@ def split_large_file(file_path, chunk_size=MAX_ZIP_SIZE):
         log_error(f"Split failed: {e}")
         return []
 
-def pack_and_send():
+def pack_and_send(force=False):
 
     moved = move_finished_files()
     if moved: log_info(f"Moved {moved} files")
@@ -519,15 +519,24 @@ def pack_and_send():
         log_error("No valid files after splitting")
         return
 
-    batch_files, batch_size = [], 0
+    batch_files = []
+    batch_size = 0
+
     for f in sorted(files_to_process):
         size = f.stat().st_size
-        if batch_size + size > SAFE_LIMIT:
+
+        # 🚫 If adding this file exceeds limit → send current batch
+        if batch_files and (batch_size + size > SAFE_LIMIT):
             send_batch(batch_files)
-            batch_files, batch_size = [], 0
+            batch_files = []
+            batch_size = 0
+
         batch_files.append(f)
         batch_size += size
-    if batch_files: send_batch(batch_files)
+
+    # ✅ Send if full OR forced (end of download)
+    if batch_files and (force or batch_size >= SAFE_LIMIT):
+        send_batch(batch_files)
 
 def send_batch(file_list):
     if all(".zip." in f.name for f in file_list):
@@ -566,23 +575,7 @@ MIN_WAIT_TIME = 60  # seconds
 last_add_time = time.time()
 
 def should_send():
-    files = get_bundle_files()
-    if not files:
-        return False
-
-    # send if big enough
-    if get_bundle_size() > SAFE_LIMIT:
-        return True
-
-    # OR enough files collected
-    if len(files) >= MIN_FILES_BEFORE_SEND:
-        return True
-
-    # OR waited long enough since last file
-    if time.time() - last_add_time > MIN_WAIT_TIME:
-        return True
-
-    return False
+    return get_bundle_size() >= SAFE_LIMIT
 
 # ===========================
 # MONITOR DOWNLOAD
@@ -683,7 +676,7 @@ def main():
     process.wait()
 
     log_info("Download complete, final pack...")
-    pack_and_send()
+    pack_and_send(force=True)
     log_success(f"All synced! {get_sys_info()}")
 
 
