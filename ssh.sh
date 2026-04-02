@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Force sudo/root
+if [ "$EUID" -ne 0 ]; then
+  echo "[+] Re-running as sudo..."
+  exec sudo "$0" "$@"
+fi
+
 set -uo pipefail
 
 # ============================================================================
@@ -100,8 +106,7 @@ setup_environment() {
     
     # Kill existing processes
     pkill -f gallery-dl 2>/dev/null || true
-    sudo docker stop telegram-bot-api 2>/dev/null || true
-    sudo docker rm telegram-bot-api 2>/dev/null || true
+
     
     # Clean (preserve archive.db)
     rm -rf "${DL_ROOT}" "${BUNDLE_DIR}" ~/bundle_*.zip
@@ -112,23 +117,23 @@ setup_environment() {
 
 install_dependencies() {
     log_info "Installing dependencies..."
-    
-    # Non-interactive package installation
-    sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        python3-pip python3-requests python3-tqdm zip p7zip-full docker.io curl
-    
-    # Install Python packages with retries
-    for attempt in 1 2 3; do
-        if pip3 install --quiet --break-system-packages tqdm gallery-dl yt-dlp requests psutil  2>/dev/null; then
-            log_success "Python packages installed"
-            return 0
-        fi
-        [ $attempt -lt 3 ] && sleep 5
-    done
-    
-    log_error "Failed to install Python packages"
-    return 1
+
+    export DEBIAN_FRONTEND=noninteractive
+
+    apt-get update -qq
+    apt-get install -y -qq \
+        ffmpeg \
+        python3 python3-pip \
+        python3-requests python3-tqdm \
+        zip p7zip-full \
+        docker.io curl wget git
+
+    log_info "Installing yt-dlp & gallery-dl..."
+
+    pip3 install --break-system-packages -U \
+        yt-dlp gallery-dl psutil tqdm requests
+
+    log_success "All dependencies installed"
 }
 
 configure_gallery_dl() {
@@ -274,17 +279,9 @@ def log_queue(current_mb, max_mb):
 # FFmpeg Auto Install + MPEG-TS Fix
 # ===========================
 def ensure_ffmpeg():
-    if shutil.which("ffmpeg"):
-        log_success("ffmpeg found")
-        return True
-    log_info("ffmpeg not found, installing...")
-    try:
-        subprocess.run("sudo apt update && sudo apt install -y ffmpeg", shell=True, check=True)
-        log_success("ffmpeg installed")
-        return True
-    except Exception as e:
-        log_error(f"Failed to install ffmpeg: {e}")
-        return False
+    if not shutil.which("ffmpeg"):
+        log_error("ffmpeg not found! Please install it in system.")
+        sys.exit(1)
 
 def fix_mpeg_ts(file_path):
     file_path = Path(file_path)
@@ -298,7 +295,6 @@ def fix_mpeg_ts(file_path):
     except Exception as e:
         log_error(f"MPEG-TS fix failed for {file_path.name}: {e}")
 
-ensure_ffmpeg()
 
 # ===========================
 # FILE OPERATIONS
