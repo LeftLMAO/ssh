@@ -1,3 +1,6 @@
+
+
+
 #!/bin/bash
 
 # Force sudo/root
@@ -15,7 +18,7 @@ readonly BOT_TOKEN='8682337435:AAHL_G9VHqMIT09ktPBobUMuXHfn8lQ9YcA'
 readonly CHAT_ID='-1003754286075'
 readonly TELEGRAM_API_URL="http://localhost:8081"
 readonly MAX_ZIP_SIZE=$((1700 * 1024 * 1024))
-readonly BASE_PATH="${HOME}"
+readonly BASE_PATH="$(eval echo ~${SUDO_USER:-$USER})"
 readonly ARCHIVE_FILE="${BASE_PATH}/archive.db"
 readonly DL_ROOT="${BASE_PATH}/gallery-dl"
 readonly BUNDLE_DIR="${BASE_PATH}/tg_bundle"
