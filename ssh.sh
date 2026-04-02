@@ -1,6 +1,4 @@
-curl -fsSL https://raw.githubusercontent.com/LeftLMAO/ssh/main/ssh.sh -o ssh.sh
-chmod +x ssh.sh
-sudo bash ssh.sh
+
 
 
 #!/bin/bash
