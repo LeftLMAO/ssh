@@ -1,7 +1,6 @@
 
-
-
 #!/usr/bin/env bash
+
 
 set -uo pipefail
 
@@ -12,32 +11,15 @@ readonly BOT_TOKEN='8682337435:AAHL_G9VHqMIT09ktPBobUMuXHfn8lQ9YcA'
 readonly CHAT_ID='-1003754286075'
 readonly TELEGRAM_API_URL="http://localhost:8081"
 readonly MAX_ZIP_SIZE=$((1700 * 1024 * 1024))
-readonly BASE_PATH="$HOME"
+readonly BASE_PATH="$(eval echo ~${SUDO_USER:-$USER})"
 readonly ARCHIVE_FILE="${BASE_PATH}/archive.db"
 readonly DL_ROOT="${BASE_PATH}/gallery-dl"
 readonly BUNDLE_DIR="${BASE_PATH}/tg_bundle"
 readonly PARALLEL_JOBS=2
 
 # ============================================================================
-# UTILITIES & LOCK HANDLING
+# UTILITIES
 # ============================================================================
-wait_for_apt() {
-    log_info "Checking for package manager locks..."
-    local count=0
-    # Loop while locks exist
-    while sudo fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; do
-        if [ $count -gt 10 ]; then
-            log_info "Lock persists. Attempting to force release..."
-            sudo rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend
-            sudo dpkg --configure -a
-            break
-        fi
-        log_info "Waiting for other package manager (apt) to finish... ($((count*5))s)"
-        sleep 5
-        ((count++))
-    done
-}
-
 get_stats() {
     local ram disk
     ram=$(free -h | awk '/^Mem:/ {print $7}')
@@ -45,45 +27,138 @@ get_stats() {
     echo "📊 [RAM: $ram | Disk: $disk]"
 }
 
-log_info() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ℹ️  $*"; }
-log_success() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $*"; }
-log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ $*" >&2; }
-
-# ============================================================================
-# SETUP FUNCTIONS
-# ============================================================================
-setup_environment() {
-    log_info "Resetting environment... $(get_stats)"
-    pkill -f gallery-dl 2>/dev/null || true
-    rm -rf "${DL_ROOT}" "${BUNDLE_DIR}" ~/bundle_*.zip
-    mkdir -p "${BUNDLE_DIR}" "${DL_ROOT}"
-    log_success "Environment reset"
+log_info() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ℹ️  $*"
 }
 
+log_success() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $*"
+}
+
+log_error() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ $*" >&2
+}
+
+cleanup() {
+    log_info "Cleaning up..."
+    pkill -f gallery-dl 2>/dev/null || true
+    sudo docker stop telegram-bot-api 2>/dev/null || true
+}
+
+trap cleanup INT TERM
 setup_swap() {
     local SWAP_FILE="/swapfile"
+    local SWAP_SIZE="10G"
+
     log_info "Checking swap..."
+
+    # Check if swap already exists
     if sudo swapon --show | grep -q "$SWAP_FILE"; then
         log_info "Swap already active"
         return 0
     fi
+
+    # If swap file exists but not active, enable it
+    if [ -f "$SWAP_FILE" ]; then
+        log_info "Swap file exists, enabling..."
+        sudo chmod 600 "$SWAP_FILE"
+        sudo mkswap "$SWAP_FILE" >/dev/null 2>&1 || true
+        sudo swapon "$SWAP_FILE"
+        return 0
+    fi
+
     log_info "Creating 10GB swap file..."
-    sudo fallocate -l 10G "$SWAP_FILE" || sudo dd if=/dev/zero of="$SWAP_FILE" bs=1M count=10240
+
+    # Try fast method first
+    if sudo fallocate -l $SWAP_SIZE "$SWAP_FILE" 2>/dev/null; then
+        log_success "Swap file allocated (fallocate)"
+    else
+        log_info "fallocate failed, using dd (slower)..."
+        sudo dd if=/dev/zero of="$SWAP_FILE" bs=1M count=10240 status=progress
+    fi
+
     sudo chmod 600 "$SWAP_FILE"
     sudo mkswap "$SWAP_FILE"
     sudo swapon "$SWAP_FILE"
-    log_success "Swap 10GB enabled"
+
+    # Make permanent
+    if ! grep -q "$SWAP_FILE" /etc/fstab; then
+        echo "$SWAP_FILE none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null
+    fi
+
+    # Optimize swappiness
+    sudo sysctl vm.swappiness=10 >/dev/null
+    if ! grep -q "vm.swappiness" /etc/sysctl.conf; then
+        echo "vm.swappiness=10" | sudo tee -a /etc/sysctl.conf >/dev/null
+    fi
+
+    log_success "Swap 10GB enabled successfully"
+}
+# ============================================================================
+# SETUP
+# ============================================================================
+setup_environment() {
+    log_info "Resetting environment... $(get_stats)"
+    
+    # Kill existing processes
+    pkill -f gallery-dl 2>/dev/null || true
+
+    
+    # Clean (preserve archive.db)
+    rm -rf "${DL_ROOT}" "${BUNDLE_DIR}" ~/bundle_*.zip
+    mkdir -p "${BUNDLE_DIR}" "${DL_ROOT}"
+    
+    log_success "Environment reset"
 }
 
 install_dependencies() {
-    wait_for_apt
     log_info "Installing dependencies..."
+
     export DEBIAN_FRONTEND=noninteractive
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq ffmpeg python3 python3-pip zip p7zip-full docker.io curl wget git
-    
-    log_info "Installing Python tools..."
-    pip3 install -U yt-dlp gallery-dl psutil tqdm requests
+
+    # 🔒 Wait for any apt locks to be released
+    log_info "Waiting for apt locks to be free..."
+    while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+       || sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 \
+       || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
+       || sudo fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
+        log_info "Another apt process is running... waiting 3s"
+        sleep 3
+    done
+
+    # 🧹 Fix broken states (VERY IMPORTANT)
+    sudo dpkg --configure -a >/dev/null 2>&1 || true
+
+    # 🔄 Retry logic
+    for i in {1..5}; do
+        log_info "Running apt update (attempt $i)..."
+        if sudo apt-get update -qq; then
+            break
+        fi
+        log_error "apt update failed, retrying..."
+        sleep 5
+    done
+
+    for i in {1..5}; do
+        log_info "Installing packages (attempt $i)..."
+        if sudo apt-get install -y -qq \
+            ffmpeg \
+            python3 python3-pip \
+            python3-requests python3-tqdm \
+            zip p7zip-full \
+            docker.io curl wget git; then
+            break
+        fi
+        log_error "apt install failed, retrying..."
+        sleep 5
+    done
+
+    log_info "Installing yt-dlp & gallery-dl..."
+
+    pip3 install --break-system-packages -U \
+        yt-dlp gallery-dl psutil tqdm requests
+
+    log_success "All dependencies installed"
 }
 
 configure_gallery_dl() {
