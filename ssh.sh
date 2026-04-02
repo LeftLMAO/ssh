@@ -1,4 +1,6 @@
-#!/bin/bash
+
+#!/usr/bin/env bash
+
 # Force sudo/root
 if [ "$EUID" -ne 0 ]; then
   echo "[+] Re-running as sudo..."
@@ -515,41 +517,83 @@ def monitor_download(process):
 # MAIN
 # ===========================
 def main():
+    import shutil
+
     BUNDLE_DIR.mkdir(exist_ok=True)
     DL_ROOT.mkdir(exist_ok=True)
     YTDLP_ROOT.mkdir(exist_ok=True)
 
-    url = sys.argv[1] if len(sys.argv)>1 else input("🔗 Enter URL: ").strip()
-    if not url: log_error("No URL provided"); sys.exit(1)
+    url = sys.argv[1] if len(sys.argv) > 1 else input("🔗 Enter URL: ").strip()
+    if not url:
+        log_error("No URL provided")
+        sys.exit(1)
 
     print("Select downloader:\n1: gallery-dl\n2: yt-dlp")
     downloader = input("Choice: ").strip()
+
     media_type = input("Media Type? 1: Images 2: Videos 3: Both: ").strip()
     media_filters = {
-        '1':'extension in ("jpg","jpeg","png","gif","webp","bmp","tiff") or type=="image"',
-        '2':'extension in ("mp4","webm","mkv","avi","mov","flv") or type=="video"'
+        '1': 'extension in ("jpg","jpeg","png","gif","webp","bmp","tiff") or type=="image"',
+        '2': 'extension in ("mp4","webm","mkv","avi","mov","flv") or type=="video"'
     }
     filter_type = media_filters.get(media_type)
 
-    if downloader=='1':
-        cmd = ['gallery-dl','--verbose','--download-archive',str(ARCHIVE_FILE), url]
-        if filter_type: cmd += ['--filter', filter_type]
-    else:
+    # ✅ Detect binaries
+    gallery_dl_bin = shutil.which("gallery-dl") or "/usr/local/bin/gallery-dl"
+    yt_dlp_bin = shutil.which("yt-dlp") or "/usr/local/bin/yt-dlp"
+
+    if downloader == '1':
+        if not Path(gallery_dl_bin).exists():
+            log_error("gallery-dl not found! Install with: pip3 install gallery-dl")
+            sys.exit(1)
+
         cmd = [
-            'yt-dlp','-o',str(YTDLP_ROOT/'%(title)s.%(ext)s'),
-            '--no-part','--restrict-filenames','--newline',
-            '--concurrent-fragments','16','--buffer-size','16K','-f','bestvideo+bestaudio/best', url
+            gallery_dl_bin,
+            '--verbose',
+            '--download-archive', str(ARCHIVE_FILE),
+            url
         ]
 
-    process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+        if filter_type:
+            cmd += ['--filter', filter_type]
+
+    else:
+        if not Path(yt_dlp_bin).exists():
+            log_error("yt-dlp not found! Install with: pip3 install yt-dlp")
+            sys.exit(1)
+
+        cmd = [
+            yt_dlp_bin,
+            '-o', str(YTDLP_ROOT / '%(title)s.%(ext)s'),
+            '--no-part',
+            '--restrict-filenames',
+            '--newline',
+            '--concurrent-fragments', '16',
+            '--buffer-size', '16K',
+            '-f', 'bestvideo+bestaudio/best',
+            url
+        ]
+
+    log_info(f"Running command: {' '.join(cmd)}")
+
+    try:
+        process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+    except FileNotFoundError as e:
+        log_error(f"Failed to start process: {e}")
+        sys.exit(1)
+
     monitor_download(process)
     process.wait()
+
     log_info("Download complete, final pack...")
     pack_and_send()
     log_success(f"All synced! {get_sys_info()}")
 
-if __name__=="__main__":
+
+# ✅ THIS WAS MISSING / MUST BE PRESENT
+if __name__ == "__main__":
     main()
+
 PYEOF
 
 chmod +x "${BASE_PATH}/sajjad_final.py"
