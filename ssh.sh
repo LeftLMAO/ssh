@@ -1,6 +1,5 @@
 
 
-
 #!/usr/bin/env bash
 
 
@@ -535,26 +534,31 @@ def send_batch(file_list):
         for part in file_list:
             upload_to_tg(part, caption=f"📦 Part: {part.name}")
         return
-    if not file_list: return
-    if len(file_list) == 1:
-        upload_to_tg(file_list[0], caption=f"📦 File: {file_list[0].name}")
+
+    if not file_list:
         return
 
     zip_path = BASE_PATH / f"bundle_{int(time.time())}.zip"
+
     try:
-        cmd = ['7z','a','-tzip','-mx=1','-mmt=on',str(zip_path)]+[str(f) for f in file_list]
+        cmd = ['7z','a','-tzip','-mx=1','-mmt=on',str(zip_path)] + [str(f) for f in file_list]
         subprocess.run(cmd, check=True, timeout=3600)
     except:
         try:
-            cmd = ['zip','-0','-j','-m','-q',str(zip_path)]+[str(f) for f in file_list]
+            cmd = ['zip','-0','-j','-m','-q',str(zip_path)] + [str(f) for f in file_list]
             subprocess.run(cmd, check=True, timeout=3600)
         except Exception as e:
             log_error(f"Failed to create ZIP: {e}")
             return
+
     if upload_to_tg(zip_path, caption=f"📦 Batch: {len(file_list)} files"):
         for f in file_list:
-            if f.exists() and not ".zip." in f.name: f.unlink()
-        if ARCHIVE_FILE.exists(): time.sleep(2); upload_to_tg(ARCHIVE_FILE, caption="💾 Database Backup", is_db=True)
+            if f.exists() and not ".zip." in f.name:
+                f.unlink()
+
+        if ARCHIVE_FILE.exists():
+            time.sleep(2)
+            upload_to_tg(ARCHIVE_FILE, caption="💾 Database Backup", is_db=True)
 
 MIN_FILES_BEFORE_SEND = 3
 MIN_WAIT_TIME = 60  # seconds
