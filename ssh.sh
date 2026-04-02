@@ -1,11 +1,8 @@
 
+
+
 #!/usr/bin/env bash
 
-# Force sudo/root
-if [ "$EUID" -ne 0 ]; then
-  echo "[+] Re-running as sudo..."
-  exec sudo "$0" "$@"
-fi
 
 set -uo pipefail
 
