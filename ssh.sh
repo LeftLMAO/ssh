@@ -1,5 +1,6 @@
 
 
+
 #!/usr/bin/env bash
 
 
@@ -182,7 +183,16 @@ install_dependencies() {
     # Install tqdm & requests WITHOUT uninstall attempt
     pip3 install --break-system-packages -U tqdm requests --no-deps
 
+    # Add local bin to PATH (fix gallery-dl not found)
+    if ! grep -q '.local/bin' "$HOME/.bashrc"; then
+        echo 'export PATH=$HOME/.local/bin:$PATH' >> "$HOME/.bashrc"
+    fi
+
+    export PATH="$HOME/.local/bin:$PATH"
+
+    log_success "PATH updated to include ~/.local/bin"
     log_success "All dependencies installed"
+
 }
 configure_gallery_dl() {
     log_info "Configuring gallery-dl..."
@@ -476,6 +486,8 @@ def split_large_file(file_path, chunk_size=MAX_ZIP_SIZE):
         return []
 
 def pack_and_send():
+global last_add_time
+last_add_time = time.time()
     moved = move_finished_files()
     if moved: log_info(f"Moved {moved} files")
     files = get_bundle_files()
@@ -529,6 +541,30 @@ def send_batch(file_list):
             if f.exists() and not ".zip." in f.name: f.unlink()
         if ARCHIVE_FILE.exists(): time.sleep(2); upload_to_tg(ARCHIVE_FILE, caption="💾 Database Backup", is_db=True)
 
+MIN_FILES_BEFORE_SEND = 3
+MIN_WAIT_TIME = 60  # seconds
+
+last_add_time = time.time()
+
+def should_send():
+    files = get_bundle_files()
+    if not files:
+        return False
+
+    # send if big enough
+    if get_bundle_size() > SAFE_LIMIT:
+        return True
+
+    # OR enough files collected
+    if len(files) >= MIN_FILES_BEFORE_SEND:
+        return True
+
+    # OR waited long enough since last file
+    if time.time() - last_add_time > MIN_WAIT_TIME:
+        return True
+
+    return False
+
 # ===========================
 # MONITOR DOWNLOAD
 # ===========================
@@ -546,7 +582,7 @@ def monitor_download(process):
                 max_mb = MAX_ZIP_SIZE/(1024**2)
                 log_queue(bundle_mb,max_mb)
                 last_stat = now
-            if get_bundle_size() > SAFE_LIMIT:
+            if should_send():
                 pack_and_send()
             time.sleep(2)
     except KeyboardInterrupt:
@@ -582,9 +618,8 @@ def main():
     filter_type = media_filters.get(media_type)
 
     # ✅ Detect binaries
-    gallery_dl_bin = shutil.which("gallery-dl") or "/usr/local/bin/gallery-dl"
-    yt_dlp_bin = shutil.which("yt-dlp") or "/usr/local/bin/yt-dlp"
-
+    gallery_dl_bin = shutil.which("gallery-dl") or str(Path.home() / ".local/bin/gallery-dl")
+    yt_dlp_bin = shutil.which("yt-dlp") or str(Path.home() / ".local/bin/yt-dlp")
     if downloader == '1':
         if not Path(gallery_dl_bin).exists():
             log_error("gallery-dl not found! Install with: pip3 install gallery-dl")
