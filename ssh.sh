@@ -176,7 +176,9 @@ install_dependencies() {
 
     # 🚀 Force clean install without touching system packages
     pip3 install --break-system-packages -U \
-        yt-dlp gallery-dl psutil \
+        yt-dlp \
+        "git+https://github.com/mikf/gallery-dl.git@master" \
+        psutil \
         --ignore-installed
 
     # Install tqdm & requests WITHOUT uninstall attempt
