@@ -177,7 +177,7 @@ install_dependencies() {
     # 🚀 Force clean install without touching system packages
     pip3 install --break-system-packages -U \
         yt-dlp \
-        "git+https://github.com/mikf/gallery-dl.git@master" \
+        "https://github.com/mikf/gallery-dl/archive/master.tar.gz" \
         psutil \
         --ignore-installed
 
